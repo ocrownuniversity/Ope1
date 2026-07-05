@@ -1,0 +1,855 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>WeightAI — Estimate object weight from a photo</title>
+<meta name="description" content="Point your camera at an object and get an instant AI weight-range estimate. 100% on-device, no accounts, works offline.">
+<meta name="theme-color" content="#14171A">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="WeightAI">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+<style>
+  :root{
+    --bg:        #14171A;
+    --surface:   #1E2226;
+    --surface-2: #262B30;
+    --border:    #33393E;
+    --text:      #EDEFF1;
+    --text-dim:  #9AA3AB;
+    --accent:    #FFB020;
+    --accent-dim:#8A6420;
+    --good:      #4FD1C5;
+    --warn:      #FFB020;
+    --bad:       #FF6B6B;
+    --radius:    16px;
+    --radius-sm: 10px;
+    --shadow:    0 8px 24px rgba(0,0,0,0.35);
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body{ margin:0; padding:0; }
+  body{
+    background:var(--bg);
+    color:var(--text);
+    font-family:'Inter',system-ui,-apple-system,sans-serif;
+    min-height:100vh;
+    padding-top:var(--safe-top);
+    padding-bottom:var(--safe-bottom);
+    -webkit-font-smoothing:antialiased;
+  }
+  @media (prefers-reduced-motion: reduce){
+    *{ animation-duration:0.001ms !important; transition-duration:0.001ms !important; }
+  }
+
+  a, button, input{ font-family:inherit; }
+  button{ cursor:pointer; border:none; background:none; color:inherit; }
+  button:focus-visible, input:focus-visible, [tabindex]:focus-visible{
+    outline:2px solid var(--good); outline-offset:2px;
+  }
+
+  .app{ max-width:520px; margin:0 auto; padding:16px 16px 40px; }
+
+  header.top{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:10px 2px 18px;
+  }
+  .brand{ display:flex; align-items:center; gap:10px; }
+  .brand .logo{
+    width:34px; height:34px; border-radius:9px;
+    background:linear-gradient(155deg,var(--surface-2),var(--surface));
+    border:1px solid var(--border);
+    display:flex; align-items:center; justify-content:center;
+    font-family:'Space Mono',monospace; color:var(--accent); font-weight:700;
+  }
+  .brand h1{ font-size:17px; margin:0; letter-spacing:0.2px; }
+  .brand .tag{ display:block; font-size:11px; color:var(--text-dim); margin-top:1px; }
+
+  #installBtn{
+    display:none;
+    font-size:12px; font-weight:600; color:var(--bg);
+    background:var(--accent); padding:8px 12px; border-radius:999px;
+  }
+  #installBtn.show{ display:inline-flex; align-items:center; gap:6px; }
+
+  .card{
+    background:var(--surface);
+    border:1px solid var(--border);
+    border-radius:var(--radius);
+    box-shadow:var(--shadow);
+    padding:16px;
+    margin-bottom:14px;
+  }
+
+  .capture-frame{
+    position:relative;
+    aspect-ratio:4/3;
+    border-radius:var(--radius-sm);
+    background:
+      repeating-linear-gradient(45deg, #1a1e22 0 10px, #191d21 10px 20px);
+    border:1px dashed var(--border);
+    display:flex; align-items:center; justify-content:center;
+    overflow:hidden;
+    margin-bottom:14px;
+  }
+  .capture-frame img, .capture-frame canvas{
+    position:absolute; inset:0; width:100%; height:100%; object-fit:contain;
+    background:#000;
+  }
+  .capture-empty{
+    text-align:center; color:var(--text-dim); padding:24px; z-index:1;
+  }
+  .capture-empty svg{ width:40px; height:40px; margin-bottom:8px; opacity:0.6; }
+  .capture-empty p{ margin:0; font-size:13px; }
+
+  .btn-row{ display:flex; gap:10px; }
+  .btn{
+    flex:1;
+    display:flex; align-items:center; justify-content:center; gap:8px;
+    padding:13px 10px;
+    border-radius:12px;
+    font-size:14px; font-weight:600;
+    background:var(--surface-2);
+    border:1px solid var(--border);
+    color:var(--text);
+    transition:transform .08s ease, background .15s ease;
+  }
+  .btn:active{ transform:scale(0.97); }
+  .btn.primary{
+    background:var(--accent); color:#1a1200; border-color:var(--accent);
+  }
+  .btn.primary:disabled{
+    background:var(--surface-2); color:var(--text-dim); border-color:var(--border); cursor:not-allowed;
+  }
+  .btn.ghost{ background:transparent; }
+  .btn svg{ width:18px; height:18px; flex-shrink:0; }
+
+  #analyzeBtn{ width:100%; margin-top:12px; }
+
+  input[type=file]{ display:none; }
+
+  .status-row{
+    display:flex; align-items:center; gap:10px;
+    font-size:13px; color:var(--text-dim);
+    padding:10px 2px;
+  }
+  .spinner{
+    width:16px; height:16px; border-radius:50%;
+    border:2px solid var(--border); border-top-color:var(--accent);
+    animation:spin .8s linear infinite; flex-shrink:0;
+  }
+  @keyframes spin{ to{ transform:rotate(360deg); } }
+
+  .readout{
+    background:#0E1012;
+    border:1px solid var(--border);
+    border-radius:var(--radius-sm);
+    padding:18px 16px 16px;
+    position:relative;
+    overflow:hidden;
+  }
+  .readout::before{
+    content:"";
+    position:absolute; inset:0;
+    background:repeating-linear-gradient(180deg, rgba(255,255,255,0.02) 0 1px, transparent 1px 3px);
+    pointer-events:none;
+  }
+  .readout .label{
+    font-size:11px; letter-spacing:1.5px; text-transform:uppercase;
+    color:var(--text-dim); margin-bottom:4px;
+  }
+  .readout .object-name{
+    font-size:20px; font-weight:800; margin-bottom:14px; text-transform:capitalize;
+  }
+  .readout .weight-value{
+    font-family:'Space Mono',monospace;
+    font-size:clamp(28px,9vw,40px);
+    font-weight:700;
+    color:var(--accent);
+    text-shadow:0 0 18px rgba(255,176,32,0.35);
+    line-height:1.1;
+    word-break:break-word;
+  }
+  .readout .weight-unit{ font-size:0.5em; color:var(--text-dim); margin-left:4px; }
+
+  .confidence-wrap{ margin-top:16px; }
+  .confidence-head{
+    display:flex; justify-content:space-between; font-size:12px; color:var(--text-dim); margin-bottom:6px;
+  }
+  .confidence-bar{
+    height:8px; border-radius:99px; background:var(--surface-2); overflow:hidden;
+  }
+  .confidence-fill{
+    height:100%; border-radius:99px; transition:width .5s ease;
+  }
+
+  .disclaimer{
+    display:flex; gap:8px; align-items:flex-start;
+    font-size:12px; color:var(--text-dim);
+    background:var(--surface-2);
+    border:1px solid var(--border);
+    border-radius:10px; padding:10px 12px; margin-top:14px;
+  }
+  .disclaimer svg{ width:16px; height:16px; flex-shrink:0; margin-top:1px; color:var(--warn); }
+
+  .reject-box{ text-align:center; padding:6px 4px 2px; }
+  .reject-box svg{ width:36px; height:36px; color:var(--bad); margin-bottom:8px; }
+  .reject-box h3{ margin:0 0 6px; font-size:16px; }
+  .reject-box p{ margin:0 0 14px; font-size:13px; color:var(--text-dim); line-height:1.5; }
+
+  .edit-grid{
+    display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:14px;
+  }
+  .field{ display:flex; flex-direction:column; gap:6px; }
+  .field label{ font-size:11px; color:var(--text-dim); text-transform:uppercase; letter-spacing:0.5px; }
+  .field-input{
+    display:flex; align-items:center; background:var(--surface-2);
+    border:1px solid var(--border); border-radius:10px; overflow:hidden;
+  }
+  .field-input input{
+    flex:1; min-width:0; background:transparent; border:none; color:var(--text);
+    font-family:'Space Mono',monospace; font-size:15px; padding:10px 8px;
+  }
+  .field-input select{
+    background:var(--surface); border:none; color:var(--text-dim);
+    font-size:12px; padding:10px 8px; border-left:1px solid var(--border);
+  }
+
+  #confirmBtn{ width:100%; margin-top:14px; }
+  .confirmed-banner{
+    display:none; align-items:center; gap:8px;
+    background:rgba(79,209,197,0.12); border:1px solid var(--good);
+    color:var(--good); border-radius:10px; padding:10px 12px; font-size:13px;
+    margin-top:12px;
+  }
+  .confirmed-banner.show{ display:flex; }
+  .confirmed-banner svg{ width:16px; height:16px; flex-shrink:0; }
+
+  #historySection{ display:none; }
+  #historySection.show{ display:block; }
+  .history-item{
+    display:flex; justify-content:space-between; align-items:center;
+    padding:10px 0; border-bottom:1px solid var(--border); font-size:13px;
+  }
+  .history-item:last-child{ border-bottom:none; }
+  .history-item .hi-name{ text-transform:capitalize; font-weight:600; }
+  .history-item .hi-weight{ font-family:'Space Mono',monospace; color:var(--accent); }
+  .history-item .hi-clear{ color:var(--text-dim); font-size:16px; padding:4px 8px; }
+  .section-title{ font-size:13px; font-weight:700; color:var(--text-dim); margin:0 0 4px; text-transform:uppercase; letter-spacing:0.5px; }
+
+  footer.app-footer{
+    text-align:center; font-size:11px; color:var(--text-dim); padding:20px 10px 4px; line-height:1.6;
+  }
+</style>
+</head>
+<body>
+
+<div class="app">
+
+  <header class="top">
+    <div class="brand">
+      <div class="logo">W</div>
+      <div>
+        <h1>WeightAI</h1>
+        <span class="tag">On-device weight estimator</span>
+      </div>
+    </div>
+    <button id="installBtn" type="button">Install</button>
+  </header>
+
+  <section class="card">
+    <div class="capture-frame" id="captureFrame">
+      <div class="capture-empty" id="captureEmpty">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 7h3l1.4-2h7.2L17 7h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1z"/><circle cx="12" cy="13" r="3.5"/></svg>
+        <p>Take a photo or upload an image to get a weight estimate</p>
+      </div>
+      <img id="previewImg" style="display:none" alt="Selected object preview">
+      <canvas id="overlayCanvas" style="display:none"></canvas>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn" id="takePhotoBtn" type="button">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7h3l1.4-2h7.2L17 7h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1z"/><circle cx="12" cy="13" r="3.5"/></svg>
+        Take Photo
+      </button>
+      <button class="btn" id="uploadBtn" type="button">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 16V4M12 4l-4 4M12 4l4 4"/><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg>
+        Upload Image
+      </button>
+    </div>
+
+    <input type="file" id="cameraInput" accept="image/*" capture="environment">
+    <input type="file" id="fileInput" accept="image/*">
+
+    <button class="btn primary" id="analyzeBtn" type="button" disabled>Analyze Object</button>
+
+    <div class="status-row" id="statusRow" style="display:none">
+      <div class="spinner"></div>
+      <span id="statusText">Loading AI model…</span>
+    </div>
+  </section>
+
+  <section class="card" id="rejectCard" style="display:none">
+    <div class="reject-box">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 2.7 17a2 2 0 0 0 1.7 3h15.2a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
+      <h3>Couldn't confidently identify this object</h3>
+      <p id="rejectReason">Try retaking the photo with better lighting, a plainer background, and the object filling more of the frame.</p>
+      <button class="btn primary" id="retakeBtn" type="button" style="width:100%">Retake Photo</button>
+    </div>
+  </section>
+
+  <section class="card" id="resultCard" style="display:none">
+    <div class="readout">
+      <div class="label">Detected object</div>
+      <div class="object-name" id="objectName">—</div>
+
+      <div class="label">Estimated weight range</div>
+      <div class="weight-value"><span id="weightValue">—</span></div>
+
+      <div class="confidence-wrap">
+        <div class="confidence-head">
+          <span>Confidence</span>
+          <span id="confidenceText">—</span>
+        </div>
+        <div class="confidence-bar"><div class="confidence-fill" id="confidenceFill" style="width:0%"></div></div>
+      </div>
+    </div>
+
+    <div class="disclaimer">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 9v4M12 17h.01"/><circle cx="12" cy="12" r="9"/></svg>
+      <span>This is an AI estimate based on typical weights for this type of object. It may not reflect the exact weight of your specific item — adjust it below if you know better.</span>
+    </div>
+
+    <div class="edit-grid">
+      <div class="field">
+        <label for="minInput">Min weight</label>
+        <div class="field-input">
+          <input type="number" id="minInput" inputmode="decimal" min="0" step="any">
+          <select id="minUnit"><option value="g">g</option><option value="kg">kg</option></select>
+        </div>
+      </div>
+      <div class="field">
+        <label for="maxInput">Max weight</label>
+        <div class="field-input">
+          <input type="number" id="maxInput" inputmode="decimal" min="0" step="any">
+          <select id="maxUnit"><option value="g">g</option><option value="kg">kg</option></select>
+        </div>
+      </div>
+    </div>
+
+    <button class="btn primary" id="confirmBtn" type="button">Confirm Weight</button>
+    <div class="confirmed-banner" id="confirmedBanner">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 13l4 4L19 7"/></svg>
+      <span id="confirmedText">Confirmed and saved to history.</span>
+    </div>
+  </section>
+
+  <section class="card" id="historySection">
+    <p class="section-title">Recent confirmations</p>
+    <div id="historyList"></div>
+  </section>
+
+  <footer class="app-footer">
+    Runs 100% on your device. No accounts, no servers, no tracking.<br>
+    Object detection by TensorFlow.js (COCO-SSD) — open source, MIT-licensed.
+  </footer>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  const CONFIG = {
+    MIN_CONFIDENCE: 0.5,
+    HIGH_CONFIDENCE: 0.75,
+    MAX_IMAGE_DIMENSION: 640,
+    JPEG_QUALITY: 0.82,
+    HISTORY_KEY: 'weightai_history',
+    MAX_HISTORY: 20,
+    TFJS_SRC: 'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.20.0/dist/tf.min.js',
+    COCO_SSD_SRC: 'https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.2/dist/coco-ssd.min.js'
+  };
+
+  const WEIGHT_DB = {
+    person:            { min: 45000,   max: 100000,   note: 'Adult body weight varies widely' },
+    bicycle:           { min: 8000,    max: 18000 },
+    car:               { min: 1200000, max: 2500000 },
+    motorcycle:        { min: 100000,  max: 300000 },
+    airplane:          { min: 1000000, max: 50000000, note: 'Varies enormously by aircraft type' },
+    bus:               { min: 10000000,max: 15000000 },
+    train:             { min: 50000000,max: 200000000 },
+    truck:             { min: 3000000, max: 15000000 },
+    boat:              { min: 50000,   max: 5000000 },
+    'traffic light':   { min: 20000,   max: 50000 },
+    'fire hydrant':    { min: 40000,   max: 120000 },
+    'stop sign':       { min: 15000,   max: 25000 },
+    'parking meter':   { min: 10000,   max: 30000 },
+    bench:             { min: 15000,   max: 60000 },
+    bird:              { min: 20,      max: 2000 },
+    cat:               { min: 3000,    max: 6000 },
+    dog:               { min: 2000,    max: 45000,   note: 'Highly dependent on breed' },
+    horse:             { min: 380000,  max: 1000000 },
+    sheep:             { min: 45000,   max: 100000 },
+    cow:               { min: 400000,  max: 900000 },
+    elephant:          { min: 2700000, max: 6000000 },
+    bear:              { min: 60000,   max: 600000 },
+    zebra:             { min: 175000,  max: 385000 },
+    giraffe:           { min: 800000,  max: 1900000 },
+    backpack:          { min: 300,     max: 2500 },
+    umbrella:          { min: 200,     max: 600 },
+    handbag:           { min: 200,     max: 1500 },
+    tie:               { min: 30,      max: 150 },
+    suitcase:          { min: 2000,    max: 6000 },
+    frisbee:           { min: 100,     max: 200 },
+    skis:              { min: 1200,    max: 2200 },
+    snowboard:         { min: 2500,    max: 4000 },
+    'sports ball':     { min: 400,     max: 650 },
+    kite:              { min: 100,     max: 1000 },
+    'baseball bat':    { min: 700,     max: 1000 },
+    'baseball glove':  { min: 300,     max: 500 },
+    skateboard:        { min: 2500,    max: 3500 },
+    surfboard:         { min: 2500,    max: 9000 },
+    'tennis racket':   { min: 250,     max: 370 },
+    bottle:            { min: 20,      max: 1500,    note: 'Depends heavily on size and contents' },
+    'wine glass':      { min: 100,     max: 250 },
+    cup:               { min: 150,     max: 400 },
+    fork:              { min: 20,      max: 60 },
+    knife:             { min: 30,      max: 150 },
+    spoon:             { min: 20,      max: 60 },
+    bowl:              { min: 150,     max: 600 },
+    banana:            { min: 100,     max: 200 },
+    apple:             { min: 100,     max: 250 },
+    sandwich:          { min: 150,     max: 400 },
+    orange:            { min: 130,     max: 250 },
+    broccoli:          { min: 300,     max: 700 },
+    carrot:            { min: 50,      max: 150 },
+    'hot dog':         { min: 100,     max: 200 },
+    pizza:             { min: 400,     max: 1500 },
+    donut:             { min: 40,      max: 100 },
+    cake:              { min: 500,     max: 3000 },
+    chair:             { min: 3000,    max: 15000 },
+    couch:             { min: 30000,   max: 80000 },
+    'potted plant':    { min: 500,     max: 10000 },
+    bed:               { min: 30000,   max: 100000 },
+    'dining table':    { min: 15000,   max: 50000 },
+    toilet:            { min: 30000,   max: 50000 },
+    tv:                { min: 4000,    max: 25000 },
+    laptop:            { min: 1000,    max: 3000 },
+    mouse:             { min: 70,      max: 150 },
+    remote:            { min: 50,      max: 150 },
+    keyboard:          { min: 400,     max: 1200 },
+    'cell phone':      { min: 150,     max: 250 },
+    microwave:         { min: 10000,   max: 18000 },
+    oven:              { min: 30000,   max: 60000 },
+    toaster:           { min: 1000,    max: 2500 },
+    sink:              { min: 5000,    max: 20000 },
+    refrigerator:      { min: 60000,   max: 150000 },
+    book:              { min: 200,     max: 1500 },
+    clock:             { min: 200,     max: 2000 },
+    vase:              { min: 300,     max: 3000 },
+    scissors:          { min: 50,      max: 150 },
+    'teddy bear':      { min: 150,     max: 800 },
+    'hair drier':      { min: 400,     max: 1000 },
+    toothbrush:        { min: 15,      max: 40 }
+  };
+
+  function formatWeight(grams) {
+    if (grams >= 1000) {
+      const kg = grams / 1000;
+      return (Number.isInteger(kg) ? kg : kg.toFixed(kg < 10 ? 2 : 1)) + ' kg';
+    }
+    return Math.round(grams) + ' g';
+  }
+
+  function toGrams(value, unit) {
+    return unit === 'kg' ? value * 1000 : value;
+  }
+
+  function drawCompressed(source, naturalW, naturalH) {
+    const scale = Math.min(1, CONFIG.MAX_IMAGE_DIMENSION / Math.max(naturalW, naturalH));
+    const w = Math.round(naturalW * scale);
+    const h = Math.round(naturalH * scale);
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(source, 0, 0, w, h);
+    return canvas;
+  }
+
+  function capitalize(str) {
+    return str.replace(/\b\w/g, c => c.toUpperCase());
+  }
+
+  const state = {
+    model: null,
+    modelLoading: null,
+    workingCanvas: null,
+    lastPrediction: null,
+    lastRangeGrams: null
+  };
+
+  const el = {
+    captureFrame: document.getElementById('captureFrame'),
+    captureEmpty: document.getElementById('captureEmpty'),
+    previewImg: document.getElementById('previewImg'),
+    overlayCanvas: document.getElementById('overlayCanvas'),
+    takePhotoBtn: document.getElementById('takePhotoBtn'),
+    uploadBtn: document.getElementById('uploadBtn'),
+    cameraInput: document.getElementById('cameraInput'),
+    fileInput: document.getElementById('fileInput'),
+    analyzeBtn: document.getElementById('analyzeBtn'),
+    statusRow: document.getElementById('statusRow'),
+    statusText: document.getElementById('statusText'),
+    rejectCard: document.getElementById('rejectCard'),
+    rejectReason: document.getElementById('rejectReason'),
+    retakeBtn: document.getElementById('retakeBtn'),
+    resultCard: document.getElementById('resultCard'),
+    objectName: document.getElementById('objectName'),
+    weightValue: document.getElementById('weightValue'),
+    confidenceText: document.getElementById('confidenceText'),
+    confidenceFill: document.getElementById('confidenceFill'),
+    minInput: document.getElementById('minInput'),
+    maxInput: document.getElementById('maxInput'),
+    minUnit: document.getElementById('minUnit'),
+    maxUnit: document.getElementById('maxUnit'),
+    confirmBtn: document.getElementById('confirmBtn'),
+    confirmedBanner: document.getElementById('confirmedBanner'),
+    historySection: document.getElementById('historySection'),
+    historyList: document.getElementById('historyList'),
+    installBtn: document.getElementById('installBtn')
+  };
+
+  el.takePhotoBtn.addEventListener('click', () => el.cameraInput.click());
+  el.uploadBtn.addEventListener('click', () => el.fileInput.click());
+  el.cameraInput.addEventListener('change', e => handleFile(e.target.files[0]));
+  el.fileInput.addEventListener('change', e => handleFile(e.target.files[0]));
+  el.retakeBtn.addEventListener('click', resetToCapture);
+
+  function handleFile(file) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      const img = new Image();
+      img.onload = () => {
+        el.previewImg.src = ev.target.result;
+        el.previewImg.style.display = 'block';
+        el.overlayCanvas.style.display = 'none';
+        el.captureEmpty.style.display = 'none';
+
+        state.workingCanvas = drawCompressed(img, img.naturalWidth, img.naturalHeight);
+
+        el.analyzeBtn.disabled = false;
+        el.rejectCard.style.display = 'none';
+        el.resultCard.style.display = 'none';
+      };
+      img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function resetToCapture() {
+    el.previewImg.style.display = 'none';
+    el.overlayCanvas.style.display = 'none';
+    el.captureEmpty.style.display = 'block';
+    el.analyzeBtn.disabled = true;
+    el.rejectCard.style.display = 'none';
+    el.resultCard.style.display = 'none';
+    el.cameraInput.value = '';
+    el.fileInput.value = '';
+    state.workingCanvas = null;
+    state.lastPrediction = null;
+  }
+
+  function loadScript(src) {
+    return new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = src;
+      s.onload = resolve;
+      s.onerror = () => reject(new Error('Failed to load ' + src));
+      document.head.appendChild(s);
+    });
+  }
+
+  async function ensureModel() {
+    if (state.model) return state.model;
+    if (state.modelLoading) return state.modelLoading;
+
+    state.modelLoading = (async () => {
+      setStatus(true, 'Loading AI engine…');
+      if (!window.tf) await loadScript(CONFIG.TFJS_SRC);
+      if (!window.cocoSsd) await loadScript(CONFIG.COCO_SSD_SRC);
+      setStatus(true, 'Loading vision model (first time only)…');
+      const model = await cocoSsd.load({ base: 'lite_mobilenet_v2' });
+      state.model = model;
+      setStatus(false);
+      return model;
+    })();
+
+    return state.modelLoading;
+  }
+
+  window.addEventListener('load', () => { ensureModel().catch(() => {}); });
+
+  el.analyzeBtn.addEventListener('click', runAnalysis);
+
+  async function runAnalysis() {
+    if (!state.workingCanvas) return;
+    el.analyzeBtn.disabled = true;
+    el.rejectCard.style.display = 'none';
+    el.resultCard.style.display = 'none';
+
+    try {
+      const model = await ensureModel();
+      setStatus(true, 'Analyzing image…');
+
+      const predictions = await model.detect(state.workingCanvas);
+      predictions.sort((a, b) => b.score - a.score);
+      const top = predictions[0];
+
+      setStatus(false);
+      el.analyzeBtn.disabled = false;
+
+      if (!top || top.score < CONFIG.MIN_CONFIDENCE) {
+        showReject(top
+          ? `Best guess was "${top.class}" but confidence was too low (${Math.round((top.score || 0) * 100)}%).`
+          : 'No recognizable object was found in the frame.');
+        return;
+      }
+
+      state.lastPrediction = top;
+      drawBoundingBox(top);
+      showResult(top);
+
+    } catch (err) {
+      console.error(err);
+      setStatus(false);
+      el.analyzeBtn.disabled = false;
+      showReject('Something went wrong analyzing the image. Please try again.');
+    }
+  }
+
+  function setStatus(visible, text) {
+    el.statusRow.style.display = visible ? 'flex' : 'none';
+    if (text) el.statusText.textContent = text;
+  }
+
+  function showReject(reason) {
+    el.rejectReason.textContent = reason + ' Try better lighting, a plain background, and filling more of the frame with the object.';
+    el.rejectCard.style.display = 'block';
+  }
+
+  function drawBoundingBox(prediction) {
+    const canvas = el.overlayCanvas;
+    const frameRect = el.captureFrame.getBoundingClientRect();
+    canvas.width = frameRect.width;
+    canvas.height = frameRect.height;
+
+    const iw = state.workingCanvas.width, ih = state.workingCanvas.height;
+    const scale = Math.min(frameRect.width / iw, frameRect.height / ih);
+    const offsetX = (frameRect.width - iw * scale) / 2;
+    const offsetY = (frameRect.height - ih * scale) / 2;
+    const [bx, by, bw, bh] = prediction.bbox;
+
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.strokeStyle = '#FFB020';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(offsetX + bx * scale, offsetY + by * scale, bw * scale, bh * scale);
+
+    canvas.style.display = 'block';
+  }
+
+  function showResult(prediction) {
+    const dbEntry = WEIGHT_DB[prediction.class] || { min: 100, max: 5000, note: 'No reference data for this object — rough general estimate' };
+    state.lastRangeGrams = { min: dbEntry.min, max: dbEntry.max };
+
+    el.objectName.textContent = prediction.class;
+    el.weightValue.innerHTML =
+      formatWeight(dbEntry.min) + ' – ' + formatWeight(dbEntry.max);
+
+    const pct = Math.round(prediction.score * 100);
+    el.confidenceText.textContent = pct + '%';
+    el.confidenceFill.style.width = pct + '%';
+    el.confidenceFill.style.background =
+      prediction.score >= CONFIG.HIGH_CONFIDENCE ? 'var(--good)' : 'var(--warn)';
+
+    fillEditField(el.minInput, el.minUnit, dbEntry.min);
+    fillEditField(el.maxInput, el.maxUnit, dbEntry.max);
+
+    el.confirmedBanner.classList.remove('show');
+    el.resultCard.style.display = 'block';
+  }
+
+  function fillEditField(inputEl, unitEl, grams) {
+    if (grams >= 1000) {
+      unitEl.value = 'kg';
+      inputEl.value = +(grams / 1000).toFixed(2);
+    } else {
+      unitEl.value = 'g';
+      inputEl.value = Math.round(grams);
+    }
+  }
+
+  el.confirmBtn.addEventListener('click', () => {
+    const minG = toGrams(parseFloat(el.minInput.value) || 0, el.minUnit.value);
+    const maxG = toGrams(parseFloat(el.maxInput.value) || 0, el.maxUnit.value);
+    if (maxG < minG) {
+      alert('Max weight should be greater than or equal to min weight.');
+      return;
+    }
+
+    const entry = {
+      name: state.lastPrediction ? state.lastPrediction.class : 'object',
+      minG, maxG,
+      confidence: state.lastPrediction ? Math.round(state.lastPrediction.score * 100) : null,
+      ts: Date.now()
+    };
+    saveHistory(entry);
+    renderHistory();
+
+    el.confirmedText.textContent =
+      `Confirmed: ${capitalize(entry.name)} — ${formatWeight(minG)} to ${formatWeight(maxG)}.`;
+    el.confirmedBanner.classList.add('show');
+  });
+
+  function loadHistory() {
+    try {
+      return JSON.parse(localStorage.getItem(CONFIG.HISTORY_KEY)) || [];
+    } catch (e) { return []; }
+  }
+
+  function saveHistory(entry) {
+    const list = loadHistory();
+    list.unshift(entry);
+    while (list.length > CONFIG.MAX_HISTORY) list.pop();
+    localStorage.setItem(CONFIG.HISTORY_KEY, JSON.stringify(list));
+  }
+
+  function removeHistory(ts) {
+    const list = loadHistory().filter(e => e.ts !== ts);
+    localStorage.setItem(CONFIG.HISTORY_KEY, JSON.stringify(list));
+    renderHistory();
+  }
+
+  function renderHistory() {
+    const list = loadHistory();
+    el.historySection.classList.toggle('show', list.length > 0);
+    el.historyList.innerHTML = list.map(entry => `
+      <div class="history-item">
+        <span class="hi-name">${capitalize(entry.name)}</span>
+        <span class="hi-weight">${formatWeight(entry.minG)}–${formatWeight(entry.maxG)}</span>
+        <button class="hi-clear" type="button" data-ts="${entry.ts}" aria-label="Remove entry">✕</button>
+      </div>
+    `).join('');
+    el.historyList.querySelectorAll('.hi-clear').forEach(btn => {
+      btn.addEventListener('click', () => removeHistory(Number(btn.dataset.ts)));
+    });
+  }
+  renderHistory();
+
+  (function setupManifest() {
+    const iconSvg = (bg, fg) => `
+      <svg xmlns="http://www.w3.org/2000/svg" width="512" height="512">
+        <rect width="512" height="512" rx="96" fill="${bg}"/>
+        <text x="50%" y="58%" font-family="monospace" font-size="260" font-weight="700"
+              fill="${fg}" text-anchor="middle">W</text>
+      </svg>`;
+    const svgToDataUrl = svg => 'data:image/svg+xml;base64,' + btoa(svg);
+    const icon = svgToDataUrl(iconSvg('#14171A', '#FFB020'));
+
+    const manifest = {
+      name: 'WeightAI — Object Weight Estimator',
+      short_name: 'WeightAI',
+      description: "Estimate an object's weight range from a photo, entirely on-device.",
+      start_url: '.',
+      scope: '.',
+      display: 'standalone',
+      background_color: '#14171A',
+      theme_color: '#14171A',
+      orientation: 'portrait',
+      icons: [
+        { src: icon, sizes: '512x512', type: 'image/svg+xml', purpose: 'any' },
+        { src: icon, sizes: '192x192', type: 'image/svg+xml', purpose: 'any' }
+      ]
+    };
+    const blob = new Blob([JSON.stringify(manifest)], { type: 'application/json' });
+    const link = document.createElement('link');
+    link.rel = 'manifest';
+    link.href = URL.createObjectURL(blob);
+    document.head.appendChild(link);
+
+    const touchIcon = document.createElement('link');
+    touchIcon.rel = 'apple-touch-icon';
+    touchIcon.href = icon;
+    document.head.appendChild(touchIcon);
+  })();
+
+  if ('serviceWorker' in navigator) {
+    const swSource = `
+      const CACHE_NAME = 'weightai-cache-v1';
+      self.addEventListener('install', event => {
+        event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.add(self.registration.scope)));
+        self.skipWaiting();
+      });
+      self.addEventListener('activate', event => {
+        event.waitUntil(
+          caches.keys().then(keys => Promise.all(
+            keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k))
+          ))
+        );
+        self.clients.claim();
+      });
+      self.addEventListener('fetch', event => {
+        if (event.request.method !== 'GET') return;
+        event.respondWith(
+          caches.match(event.request).then(cached => {
+            if (cached) return cached;
+            return fetch(event.request).then(response => {
+              if (response && (response.ok || response.type === 'opaque')) {
+                const clone = response.clone();
+                caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
+              }
+              return response;
+            }).catch(() => cached);
+          })
+        );
+      });
+    `;
+    const swBlob = new Blob([swSource], { type: 'application/javascript' });
+    const swUrl = URL.createObjectURL(swBlob);
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register(swUrl).catch(err => {
+        console.warn('Service worker registration failed (offline mode may be limited):', err);
+      });
+    });
+  }
+
+  let deferredPrompt = null;
+  window.addEventListener('beforeinstallprompt', e => {
+    e.preventDefault();
+    deferredPrompt = e;
+    el.installBtn.classList.add('show');
+  });
+  el.installBtn.addEventListener('click', async () => {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    await deferredPrompt.userChoice;
+    deferredPrompt = null;
+    el.installBtn.classList.remove('show');
+  });
+  window.addEventListener('appinstalled', () => {
+    el.installBtn.classList.remove('show');
+  });
+
+})();
+</script>
+</body>
+</html>
