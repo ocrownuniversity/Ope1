@@ -1,4 +1,3 @@
-/**
  * ZMONIE — Cloud Functions (Node 18/20, Firebase Functions v2)
  * Requires the Blaze (pay-as-you-go) plan — needed for outbound
  * network calls to Paystack/Flutterwave and for HTTPS functions.
