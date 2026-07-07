@@ -1,0 +1,71 @@
+// ============================================================
+// FIRESTORE RULES — PAYMENT-RELATED SNIPPET
+// ============================================================
+// This is NOT a full ruleset. Merge these rules into your existing
+// firestore.rules (you likely already have one deployed — this repo
+// only included index.html, so your current rules aren't touched).
+//
+// Purpose: make sure the Paystack/Flutterwave *secret* keys can
+// never be read by a client, and that wallet balances/ledger docs
+// can't be written directly by users (only Cloud Functions, via the
+// Admin SDK, bypass rules entirely).
+// ============================================================
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Public-ish config that the client legitimately needs to read
+    // (publicKey, enabled flag, mode). If you keep secretKey in this
+    // same document today, either move it to Secret Manager (see
+    // functions/index.js comments) or add field-level restrictions
+    // via a Cloud Function-managed copy instead of trusting client
+    // reads of this doc.
+    match /settings/paystack {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.token.email == 'oladejiridwanopeyemi@gmail.com';
+    }
+
+    // Flutterwave secrets: writable only by the Super Admin from the
+    // admin panel, and — ideally — never read back by any client at
+    // all (the Cloud Functions use the Admin SDK, which ignores
+    // these rules entirely).
+    match /adminSettings/flutterwaveSecrets {
+      allow read: if false;
+      allow write: if request.auth != null && request.auth.token.email == 'oladejiridwanopeyemi@gmail.com';
+    }
+
+    match /adminSettings/flutterwaveStatus {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.token.email == 'oladejiridwanopeyemi@gmail.com';
+    }
+
+    // Idempotency ledger written only by Cloud Functions (Admin SDK
+    // bypasses rules, so "if false" here just blocks any client
+    // attempt to forge/duplicate a credited payment).
+    match /processedPayments/{doc} {
+      allow read, write: if false;
+    }
+
+    // Users can read their own profile/balance, but must never be
+    // able to write their own `balance` field directly — wallet
+    // credits only ever happen via Cloud Functions or admin actions.
+    match /users/{uid} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow update: if request.auth != null && request.auth.uid == uid
+                    && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['balance']);
+      allow create: if request.auth != null && request.auth.uid == uid;
+    }
+
+    // Transactions: users can read their own; only Cloud Functions /
+    // admin should create the `credit` records produced by payment
+    // verification (client-created transactions like debits for
+    // purchases are a separate, existing pattern in this app — keep
+    // whatever rule you already have for those; just make sure
+    // `type == 'credit'` docs referencing paystackRef/flutterwaveRef
+    // are never trusted from the client).
+    match /transactions/{doc} {
+      allow read: if request.auth != null && resource.data.userId == request.auth.uid;
+    }
+  }
+}
